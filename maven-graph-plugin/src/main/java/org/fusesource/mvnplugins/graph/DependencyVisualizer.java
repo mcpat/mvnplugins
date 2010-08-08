@@ -16,16 +16,25 @@
  */
 package org.fusesource.mvnplugins.graph;
 
-import org.apache.maven.shared.dependency.tree.DependencyNode;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.logging.Log;
-import org.apache.maven.artifact.Artifact;
-import org.codehaus.plexus.util.cli.*;
-import org.codehaus.plexus.util.FileUtils;
-
-import java.util.*;
 import java.io.File;
 import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
+
+import org.apache.maven.artifact.Artifact;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.shared.dependency.tree.DependencyNode;
+import org.codehaus.plexus.util.FileUtils;
+import org.codehaus.plexus.util.cli.CommandLineException;
+import org.codehaus.plexus.util.cli.CommandLineUtils;
+import org.codehaus.plexus.util.cli.Commandline;
+import org.codehaus.plexus.util.cli.DefaultConsumer;
 
 /**
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
@@ -48,6 +57,7 @@ public class DependencyVisualizer {
     Log log;
     boolean cascade;
     String direction="TB";
+    URLCreator urlCreator;
 
     private class Node {
         private final String id;
@@ -124,9 +134,18 @@ public class DependencyVisualizer {
                 return "green";
             }
             if (isScope("provided")) {
-                return "darkgrey";
+//                return "darkgrey";
+                return "#a9a9a9"; // color name unknown 
             }
             return "black";
+        }
+        
+        public String getURL() {
+            if(urlCreator == null) {
+                return null;
+            }
+            
+            return urlCreator.getURL(artifact);
         }
 
         private boolean isScope(String scope) {
@@ -500,11 +519,18 @@ public class DependencyVisualizer {
             } catch (Exception ignore) {
             }
             commandline.setExecutable("dot");
-            commandline.addArguments(new String[]{
-                    "-T" + FileUtils.getExtension(target.getName()),
-                    "-o" + target.getAbsolutePath(),
-                    source.getAbsolutePath()
-            });
+            
+            ArrayList<String> cmdArgs= new ArrayList<String>(5);
+            if(urlCreator != null) {
+                File mapFile= new File(target.getParentFile(), target.getName() + ".map");
+                cmdArgs.add("-Tcmapx");
+                cmdArgs.add("-o" + mapFile.getAbsolutePath());
+            }
+            
+            cmdArgs.add("-T" + FileUtils.getExtension(target.getName()));
+            cmdArgs.add("-o" + target.getAbsolutePath());
+            cmdArgs.add(source.getAbsolutePath());
+            commandline.addArguments(cmdArgs.toArray(new String[cmdArgs.size()]));
 
             log.debug("Executing dot command...");
             int rc = CommandLineUtils.executeCommandLine(commandline, new DefaultConsumer(), new DefaultConsumer());
@@ -582,6 +608,11 @@ public class DependencyVisualizer {
                         p("fontcolor=" + q(node.getFontColor()));
                         p("fillcolor=" + q(node.getFillColor()));
                         p("style=" + q(node.getLineStyle()));
+                        
+                        String url= node.getURL();
+                        if(url != null) {
+                            p("URL=" + q(url));
+                        }
                     }
                     i(-1).p("];");
                 }

@@ -226,6 +226,7 @@ public class ProjectMojo extends AbstractMojo {
             visualizer.label = label;
             visualizer.hideTransitive = hideTransitive;
             visualizer.log = getLog();
+            visualizer.urlCreator= getURLCreator();
 
             if (hideScopes != null) {
                 for (String scope : hideScopes.split(",")) {
@@ -252,6 +253,10 @@ public class ProjectMojo extends AbstractMojo {
 
     protected void collectProjects(ArrayList<MavenProject> projects) {
         projects.add(project);
+    }
+    
+    protected URLCreator getURLCreator() {
+        return null;
     }
 
     public File getTarget() {
