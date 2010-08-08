@@ -16,12 +16,10 @@
  */
 package org.fusesource.mvnplugins.graph;
 
-import java.awt.RadialGradientPaint;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,13 +28,12 @@ import java.util.Locale;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.doxia.sink.SinkEventAttributeSet;
 import org.apache.maven.doxia.sink.SinkEventAttributes;
+import org.apache.maven.model.Model;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.reporting.MavenReport;
 import org.apache.maven.reporting.MavenReportException;
 import org.codehaus.doxia.sink.Sink;
-import org.codehaus.plexus.util.FileUtils;
-import org.codehaus.plexus.util.StringInputStream;
 
 /**
  * <p>
@@ -73,7 +70,8 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
      */
     private List<MavenProject> reactorProjects;
 
-
+    private HashMap<String, String> reactorSiteURLs;
+    
     public boolean canGenerateReport() {
         return true;
     }
@@ -114,9 +112,10 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
             if( project.getModules().size() > 1 && reactorProjects != null ) {
                 hideExternal = true;
             }
-            execute();
             
-//            sink.figure();
+            obtainReactorSiteURLs();
+            
+            execute();
             
             SinkEventAttributeSet atts= new SinkEventAttributeSet(1);
             if(isGenerateMap()) {
@@ -139,9 +138,6 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
                 
                 sink.rawText(map.toString());
             }
-            
-//            sink.figure_();
-            
         } catch (MojoExecutionException e) {
             throw new MavenReportException("Could not generate graph.", e);
         }
@@ -165,22 +161,10 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
             return null;
         }
         
-        final HashMap<String, MavenProject> reactorMap= new HashMap<String, MavenProject>();
-        for(MavenProject mp : reactorProjects) {
-            String key= mp.getGroupId()+":"+mp.getArtifactId()+":"+mp.getVersion();
-            reactorMap.put(key, mp);
-        }
-        
         return new URLCreator() {
             public String getURL(Artifact artifact) {
                 String key= artifact.getGroupId()+":"+artifact.getArtifactId()+":"+artifact.getVersion();
-                MavenProject mp= reactorMap.get(key);
-                
-                if(mp != null) {
-                    return mp.getFile().getAbsolutePath();
-                }
-                
-                return null;
+                return reactorSiteURLs.get(key);
             }
         };
     }
@@ -193,5 +177,24 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
     protected File getMapFile() {
         File target= getTarget();
         return new File(target.getParentFile(), target.getName() + ".map");
+    }
+    
+    private void obtainReactorSiteURLs() {
+        if(!isGenerateMap()) {
+            return;
+        }
+        
+        reactorSiteURLs= new HashMap<String, String>();
+        for(MavenProject mp : reactorProjects) {
+            String key= mp.getGroupId()+":"+mp.getArtifactId()+":"+mp.getVersion();
+            
+            Model model= mp.getModel();
+            String url= null;
+            if(model != null) {
+                url= model.getUrl();
+            }
+            
+            reactorSiteURLs.put(key, url);
+        }
     }
 }
