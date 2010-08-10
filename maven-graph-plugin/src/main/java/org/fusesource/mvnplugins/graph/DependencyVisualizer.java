@@ -212,15 +212,30 @@ public class DependencyVisualizer {
             return types.size()==1 && types.contains(value); 
         }
 
+        /*
+         * FIX: Maven seems to allow cyclic dependencies. An example can be found
+         *      in com.hp.hpl.jena:arq:2.6.0:pom and com.hp.hpl.jena:jena:2.5.7:pom
+         *      which references each other. --mcpat
+         */
+        private boolean recursion= false;
         public int getRecursiveChildCount() {
-            int rc = children.size();
-            for (Edge child : children) {
-                int t = child.getRecursiveChildCount();
-                if( t > rc ) {
-                    rc = t;
+            try {
+                int rc = children.size();
+                if(recursion) {
+                    return rc;
                 }
+                
+                recursion= true;
+                for (Edge child : children) {
+                    int t = child.getRecursiveChildCount();
+                    if( t > rc ) {
+                        rc = t;
+                    }
+                }
+                return rc;
+            } finally {
+                recursion= false;
             }
-            return rc;
         }
 
     }
