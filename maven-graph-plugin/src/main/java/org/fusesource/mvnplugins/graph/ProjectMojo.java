@@ -19,6 +19,7 @@ package org.fusesource.mvnplugins.graph;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.metadata.ArtifactMetadataSource;
 import org.apache.maven.artifact.resolver.ArtifactCollector;
@@ -226,7 +227,7 @@ public class ProjectMojo extends AbstractMojo {
             visualizer.label = label;
             visualizer.hideTransitive = hideTransitive;
             visualizer.log = getLog();
-            visualizer.urlCreator= getURLCreator();
+            visualizer.context= createVisualiserContext();
 
             if (hideScopes != null) {
                 for (String scope : hideScopes.split(",")) {
@@ -255,8 +256,12 @@ public class ProjectMojo extends AbstractMojo {
         projects.add(project);
     }
     
-    protected URLCreator getURLCreator() {
-        return null;
+    protected IVisualiserContext createVisualiserContext() {
+        return new IVisualiserContext() {
+            public String getURL(Artifact artifact) {
+                return null;
+            }
+        };
     }
 
     public File getTarget() {

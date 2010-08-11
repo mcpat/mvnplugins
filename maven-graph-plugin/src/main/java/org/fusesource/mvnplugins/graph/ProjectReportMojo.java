@@ -19,6 +19,7 @@ package org.fusesource.mvnplugins.graph;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,11 +27,19 @@ import java.util.List;
 import java.util.Locale;
 
 import org.apache.maven.artifact.Artifact;
+import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.doxia.sink.SinkEventAttributeSet;
 import org.apache.maven.doxia.sink.SinkEventAttributes;
 import org.apache.maven.model.Model;
+import org.apache.maven.model.Parent;
 import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.project.DefaultProjectBuilderConfiguration;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.MavenProjectBuilder;
+import org.apache.maven.project.ProjectBuildingException;
+import org.apache.maven.project.inheritance.ModelInheritanceAssembler;
+import org.apache.maven.project.interpolation.ModelInterpolationException;
+import org.apache.maven.project.interpolation.ModelInterpolator;
 import org.apache.maven.reporting.MavenReport;
 import org.apache.maven.reporting.MavenReportException;
 import org.codehaus.doxia.sink.Sink;
@@ -56,12 +65,6 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
      * @required
      */
     private File outputDirectory;
-
-    /**
-     * @parameter default-value="true"
-     * @required
-     */
-    private boolean generateMap;
     
     /**
      * @readonly
@@ -69,8 +72,39 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
      * @since 1.0
      */
     private List<MavenProject> reactorProjects;
+    
+    /**
+     * The Maven project builder.
+     * 
+     * @component
+     * @required
+     */
+    private MavenProjectBuilder mavenProjectBuilder;
 
-    private HashMap<String, String> reactorSiteURLs;
+    /**
+     * The reference to the default model inheritance assembler.
+     * 
+     * @component
+     * @required
+     */
+    private ModelInheritanceAssembler modelInheritanceAssembler;
+    
+    /**
+     * The reference to the default model interpolator.
+     * 
+     * @component
+     * @required
+     */
+    private ModelInterpolator modelInterpolator;
+    
+    /**
+     * The list of remote artifact repositories.
+     *
+     * @parameter expression="${project.remoteArtifactRepositories}"
+     * @required
+     * @readonly
+     */
+    private List<ArtifactRepository> remoteRepositories;
     
     public boolean canGenerateReport() {
         return true;
@@ -113,31 +147,12 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
                 hideExternal = true;
             }
             
-            obtainReactorSiteURLs();
-            
             execute();
             
             SinkEventAttributeSet atts= new SinkEventAttributeSet(1);
-            if(isGenerateMap()) {
-                atts.addAttribute(SinkEventAttributes.USEMAP, "#dependencies");
-            }
+            atts.addAttribute(SinkEventAttributes.USEMAP, "#dependencies");
             sink.figureGraphics(getOutputName()+".png", atts);
-            
-            if(isGenerateMap()) {
-                File mapFile= getMapFile();
-                StringBuilder map= new StringBuilder();
-                try {
-                    BufferedReader reader= new BufferedReader(new InputStreamReader(new FileInputStream(mapFile)));
-                    
-                    while(reader.ready()) {
-                        map.append(reader.readLine());
-                    }
-                } catch(Exception e) {
-                    e.printStackTrace();
-                }
-                
-                sink.rawText(map.toString());
-            }
+            attachMapToSink(sink);
         } catch (MojoExecutionException e) {
             throw new MavenReportException("Could not generate graph.", e);
         }
@@ -151,20 +166,27 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
         }
     }
     
-    protected boolean isGenerateMap() {
-        return generateMap && reactorProjects != null;
-    }
-    
     @Override
-    protected URLCreator getURLCreator() {
-        if(!isGenerateMap()) {
-            return null;
-        }
-        
-        return new URLCreator() {
+    protected IVisualiserContext createVisualiserContext() {
+        return new IVisualiserContext() {
+            private final HashMap<String, String> _siteUrls= new HashMap<String, String>();
+            
             public String getURL(Artifact artifact) {
                 String key= artifact.getGroupId()+":"+artifact.getArtifactId()+":"+artifact.getVersion();
-                return reactorSiteURLs.get(key);
+                if(!_siteUrls.containsKey(key)) {
+                    Model model;
+                    try {
+                        model= getModelForArtifact(artifact);
+                    } catch (Exception e) {
+                        model= null;
+                        e.printStackTrace();
+                    }
+                    
+                    String url= model != null ? model.getUrl() : (String) null;
+                    _siteUrls.put(key, url);
+                }
+                
+                return _siteUrls.get(key);
             }
         };
     }
@@ -175,26 +197,54 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
     }
 
     protected File getMapFile() {
-        File target= getTarget();
-        return new File(target.getParentFile(), target.getName() + ".map");
+        File tf= getTarget();
+        return new File(tf.getParentFile(), tf.getName() + ".map");
     }
     
-    private void obtainReactorSiteURLs() {
-        if(!isGenerateMap()) {
-            return;
+    private void attachMapToSink(Sink sink) throws MavenReportException {
+        File mapFile= getMapFile();
+        StringBuilder map= new StringBuilder();
+        BufferedReader reader= null;
+        try {
+            reader= new BufferedReader(new InputStreamReader(new FileInputStream(mapFile)));
+            while(reader.ready()) {
+                map.append(reader.readLine());
+            }
+        } catch(IOException ioe) {
+            throw new MavenReportException("could not attach image map", ioe);
+        } finally {
+            try {
+                if(reader != null) {
+                    reader.close();
+                }
+            } catch (IOException e) {
+                // ignore
+            }
         }
         
-        reactorSiteURLs= new HashMap<String, String>();
-        for(MavenProject mp : reactorProjects) {
-            String key= mp.getGroupId()+":"+mp.getArtifactId()+":"+mp.getVersion();
+        sink.rawText(map.toString());
+    }
+    
+    protected Model getModelForArtifact(Artifact artifact) throws ModelInterpolationException, ProjectBuildingException  {
+        MavenProject mavenProject= mavenProjectBuilder.buildFromRepository(artifact, remoteRepositories, localRepository);
+        return checkModel(mavenProject.getModel());
+    }
+    
+    private Model checkModel(Model model) throws ModelInterpolationException, ProjectBuildingException {
+        if(model.getParent() != null) {
+            Parent parent= model.getParent();
+            Artifact parentArt= artifactFactory.createArtifact(parent.getGroupId(), parent.getArtifactId(), parent.getVersion(), "compile", "pom");
+            MavenProject parentProj= mavenProjectBuilder.buildFromRepository(parentArt, remoteRepositories, localRepository);
+            Model parentModel= parentProj.getModel();
             
-            Model model= mp.getModel();
-            String url= null;
-            if(model != null) {
-                url= model.getUrl();
-            }
+            if(parentModel.getParent() != null)
+                parentModel= checkModel(parentModel);
             
-            reactorSiteURLs.put(key, url);
+            modelInheritanceAssembler.assembleModelInheritance(model, parentModel);
         }
+        
+        DefaultProjectBuilderConfiguration projectBuilderConfig= new DefaultProjectBuilderConfiguration();
+        projectBuilderConfig.setExecutionProperties(model.getProperties());
+        return modelInterpolator.interpolate(model, null, projectBuilderConfig, true);
     }
 }

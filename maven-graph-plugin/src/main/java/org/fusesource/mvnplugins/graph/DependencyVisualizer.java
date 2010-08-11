@@ -57,7 +57,7 @@ public class DependencyVisualizer {
     Log log;
     boolean cascade;
     String direction="TB";
-    URLCreator urlCreator;
+    IVisualiserContext context;
 
     private class Node {
         private final String id;
@@ -141,11 +141,7 @@ public class DependencyVisualizer {
         }
         
         public String getURL() {
-            if(urlCreator == null) {
-                return null;
-            }
-            
-            return urlCreator.getURL(artifact);
+            return context.getURL(artifact);
         }
 
         private boolean isScope(String scope) {
@@ -536,7 +532,7 @@ public class DependencyVisualizer {
             commandline.setExecutable("dot");
             
             ArrayList<String> cmdArgs= new ArrayList<String>(5);
-            if(urlCreator != null) {
+            if(context != null) {
                 File mapFile= new File(target.getParentFile(), target.getName() + ".map");
                 cmdArgs.add("-Tcmapx");
                 cmdArgs.add("-o" + mapFile.getAbsolutePath());
