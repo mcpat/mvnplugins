@@ -11,4 +11,5 @@ import org.apache.maven.artifact.Artifact;
  */
 public interface IVisualiserContext {
     String getURL(Artifact artifact);
+    Color getCustomColor(Artifact artifact);
 }

@@ -31,14 +31,10 @@ import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.doxia.sink.SinkEventAttributeSet;
 import org.apache.maven.doxia.sink.SinkEventAttributes;
 import org.apache.maven.model.Model;
-import org.apache.maven.model.Parent;
 import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.project.DefaultProjectBuilderConfiguration;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectBuilder;
-import org.apache.maven.project.ProjectBuildingException;
 import org.apache.maven.project.inheritance.ModelInheritanceAssembler;
-import org.apache.maven.project.interpolation.ModelInterpolationException;
 import org.apache.maven.project.interpolation.ModelInterpolator;
 import org.apache.maven.reporting.MavenReport;
 import org.apache.maven.reporting.MavenReportException;
@@ -72,39 +68,6 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
      * @since 1.0
      */
     private List<MavenProject> reactorProjects;
-    
-    /**
-     * The Maven project builder.
-     * 
-     * @component
-     * @required
-     */
-    private MavenProjectBuilder mavenProjectBuilder;
-
-    /**
-     * The reference to the default model inheritance assembler.
-     * 
-     * @component
-     * @required
-     */
-    private ModelInheritanceAssembler modelInheritanceAssembler;
-    
-    /**
-     * The reference to the default model interpolator.
-     * 
-     * @component
-     * @required
-     */
-    private ModelInterpolator modelInterpolator;
-    
-    /**
-     * The list of remote artifact repositories.
-     *
-     * @parameter expression="${project.remoteArtifactRepositories}"
-     * @required
-     * @readonly
-     */
-    private List<ArtifactRepository> remoteRepositories;
     
     public boolean canGenerateReport() {
         return true;
@@ -165,31 +128,6 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
             projects.addAll(reactorProjects);
         }
     }
-    
-    @Override
-    protected IVisualiserContext createVisualiserContext() {
-        return new IVisualiserContext() {
-            private final HashMap<String, String> _siteUrls= new HashMap<String, String>();
-            
-            public String getURL(Artifact artifact) {
-                String key= artifact.getGroupId()+":"+artifact.getArtifactId()+":"+artifact.getVersion();
-                if(!_siteUrls.containsKey(key)) {
-                    Model model;
-                    try {
-                        model= getModelForArtifact(artifact);
-                    } catch (Exception e) {
-                        model= null;
-                        e.printStackTrace();
-                    }
-                    
-                    String url= model != null ? model.getUrl() : (String) null;
-                    _siteUrls.put(key, url);
-                }
-                
-                return _siteUrls.get(key);
-            }
-        };
-    }
 
     @Override
     public File getTarget() {
@@ -223,28 +161,5 @@ public class ProjectReportMojo extends ProjectMojo implements MavenReport {
         }
         
         sink.rawText(map.toString());
-    }
-    
-    protected Model getModelForArtifact(Artifact artifact) throws ModelInterpolationException, ProjectBuildingException  {
-        MavenProject mavenProject= mavenProjectBuilder.buildFromRepository(artifact, remoteRepositories, localRepository);
-        return checkModel(mavenProject.getModel());
-    }
-    
-    private Model checkModel(Model model) throws ModelInterpolationException, ProjectBuildingException {
-        if(model.getParent() != null) {
-            Parent parent= model.getParent();
-            Artifact parentArt= artifactFactory.createArtifact(parent.getGroupId(), parent.getArtifactId(), parent.getVersion(), "compile", "pom");
-            MavenProject parentProj= mavenProjectBuilder.buildFromRepository(parentArt, remoteRepositories, localRepository);
-            Model parentModel= parentProj.getModel();
-            
-            if(parentModel.getParent() != null)
-                parentModel= checkModel(parentModel);
-            
-            modelInheritanceAssembler.assembleModelInheritance(model, parentModel);
-        }
-        
-        DefaultProjectBuilderConfiguration projectBuilderConfig= new DefaultProjectBuilderConfiguration();
-        projectBuilderConfig.setExecutionProperties(model.getProperties());
-        return modelInterpolator.interpolate(model, null, projectBuilderConfig, true);
     }
 }

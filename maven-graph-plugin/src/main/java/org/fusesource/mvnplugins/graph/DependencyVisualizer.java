@@ -59,16 +59,20 @@ public class DependencyVisualizer {
     String direction="TB";
     IVisualiserContext context;
 
+    
     private class Node {
         private final String id;
         private final ArrayList<Edge> children = new ArrayList<Edge>();
         private final ArrayList<Edge> parents = new ArrayList<Edge>();
         private final Artifact artifact;
         private int roots;
+        
+        private Boolean soft;
 
         public Node(String id, Artifact artifact) {
             this.id = id;
             this.artifact = artifact;
+            soft= null;
         }
 
         @Override
@@ -94,6 +98,27 @@ public class DependencyVisualizer {
                 return true;
             }
             return false;
+        }
+        
+        public boolean isSoft() {
+            if(soft == null) {
+                boolean isSoft= true;
+                
+                if(roots > 0) {
+                    isSoft= false;
+                } else {
+                    for(Edge pe : parents) {
+                        if(pe.isHard()) {
+                            isSoft= false;
+                            break;
+                        }
+                    }
+                }
+                
+                soft= Boolean.valueOf(isSoft);
+            }
+            
+            return soft.booleanValue();
         }
 
         public String getId() {
@@ -126,18 +151,17 @@ public class DependencyVisualizer {
             return sb.toString();
         }
 
-        public String getColor() {
+        public Color getColor() {
             if (isScope("test")) {
-                return "cornflowerblue";
+                return Color.CORN_FLOWER_BLUE;
             }
             if (isOptional()) {
-                return "green";
+                return Color.GREEN;
             }
-            if (isScope("provided")) {
-//                return "darkgrey";
-                return "#a9a9a9"; // color name unknown 
+            if (isSoft()) {
+                return Color.DARKGREY; 
             }
-            return "black";
+            return Color.BLACK;
         }
         
         public String getURL() {
@@ -148,13 +172,16 @@ public class DependencyVisualizer {
             return roots==0 && !parents.isEmpty() && allMatchScope(parents, scope);
         }
 
-        public String getFillColor() {
+        public Color getFillColor() {
+            Color color= context.getCustomColor(artifact);
+            
             if( roots > 0 ) {
-                return "#dddddd"; 
+                color= Color.ROOT_COLOR.mix(color);
             }
-            return "white";
+            
+            return color != null ? color : Color.WHITE;
         }
-        public String getFontColor() {
+        public Color getFontColor() {
             return getColor();
         }
 
@@ -276,6 +303,14 @@ public class DependencyVisualizer {
             return rc;
         }
 
+        public boolean isHard() {
+            if(optional || isScope("provided")) {
+                return false;
+            }
+            
+            return !parent.isSoft();
+        }
+        
         public boolean isHidden() {
             if( hideTransitive && dependencyNode.getParent().getParent()!=null ) {
                 return true;
@@ -305,6 +340,7 @@ public class DependencyVisualizer {
 
         public String getLabel() {
             StringBuilder sb = new StringBuilder();
+            
             if ( !isScope("compile")) {
                 sb.append(scope);
             }
@@ -317,11 +353,14 @@ public class DependencyVisualizer {
             return sb.toString();
         }
 
-        public String getColor() {
+        public Color getColor() {
             if (isScope("test")) {
-                return "cornflowerblue";
+                return Color.CORN_FLOWER_BLUE;
             }
-            return "black";
+            if (!isHard()) {
+                return Color.DARKGREY; 
+            }
+            return Color.BLACK;
         }
 
         double getWeight() {
@@ -615,9 +654,9 @@ public class DependencyVisualizer {
                     {
                         p("fontsize="+node.getFontSize());
                         p("label=" + q(node.getLabel()));
-                        p("color=" + q(node.getColor()));
-                        p("fontcolor=" + q(node.getFontColor()));
-                        p("fillcolor=" + q(node.getFillColor()));
+                        p("color=" + q(node.getColor().toString()));
+                        p("fontcolor=" + q(node.getFontColor().toString()));
+                        p("fillcolor=" + q(node.getFillColor().toString()));
                         p("style=" + q(node.getLineStyle()));
                         
                         String url= node.getURL();
@@ -634,8 +673,8 @@ public class DependencyVisualizer {
                     {
                         p("label=" + q(edge.getLabel()));
                         p("style=" + q(edge.getLineStyle()));
-                        p("color=" + q(edge.getColor()));
-                        p("fontcolor=" + q(edge.getColor()));
+                        p("color=" + q(edge.getColor().toString()));
+                        p("fontcolor=" + q(edge.getColor().toString()));
                         p("weight=" + edge.getWeight());
                     }
                     i(-1).p("];");

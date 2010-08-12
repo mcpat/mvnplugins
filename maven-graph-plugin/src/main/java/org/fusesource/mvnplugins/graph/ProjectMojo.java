@@ -16,22 +16,33 @@
  */
 package org.fusesource.mvnplugins.graph;
 
-import org.apache.maven.project.MavenProject;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.AbstractMojo;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Properties;
+
 import org.apache.maven.artifact.Artifact;
-import org.apache.maven.artifact.repository.ArtifactRepository;
+import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.artifact.metadata.ArtifactMetadataSource;
+import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.resolver.ArtifactCollector;
 import org.apache.maven.artifact.resolver.ArtifactResolver;
 import org.apache.maven.artifact.resolver.filter.ArtifactFilter;
-import org.apache.maven.artifact.factory.ArtifactFactory;
+import org.apache.maven.model.Model;
+import org.apache.maven.model.Parent;
+import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.project.DefaultProjectBuilderConfiguration;
+import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.MavenProjectBuilder;
+import org.apache.maven.project.ProjectBuildingException;
+import org.apache.maven.project.inheritance.ModelInheritanceAssembler;
+import org.apache.maven.project.interpolation.ModelInterpolationException;
+import org.apache.maven.project.interpolation.ModelInterpolator;
+import org.apache.maven.shared.dependency.tree.DependencyNode;
 import org.apache.maven.shared.dependency.tree.DependencyTreeBuilder;
 import org.apache.maven.shared.dependency.tree.DependencyTreeBuilderException;
-import org.apache.maven.shared.dependency.tree.DependencyNode;
-
-import java.util.ArrayList;
-import java.io.File;
 
 /**
  * Generates a graph image of the dependencies of the project using the graphviz
@@ -60,6 +71,13 @@ public class ProjectMojo extends AbstractMojo {
      * @since 1.0
      */
     protected ArtifactRepository localRepository;
+    
+    /**
+     * @parameter expression="${project.remoteArtifactRepositories}"
+     * @required
+     * @readonly
+     */
+    protected List<ArtifactRepository> remoteRepositories;
 
     /**
      * @required
@@ -98,6 +116,27 @@ public class ProjectMojo extends AbstractMojo {
      * @since 1.0
      */
     protected DependencyTreeBuilder treeBuilder;
+    
+    /**
+     * @readonly
+     * @component
+     * @required
+     */
+    protected MavenProjectBuilder mavenProjectBuilder;
+
+    /**
+     * @readonly
+     * @component
+     * @required
+     */
+    protected ModelInheritanceAssembler modelInheritanceAssembler;
+    
+    /**
+     * @readonly
+     * @component
+     * @required
+     */
+    protected ModelInterpolator modelInterpolator;
 
     /**
      * The file the diagram will be written to.  Must use a file extension that the dot command supports or just the
@@ -210,8 +249,38 @@ public class ProjectMojo extends AbstractMojo {
      * @parameter default-value="TB" expression="${graph.direction}"
      */
     protected String direction;
+    
+    /**
+     * @parameter 
+     */
+    protected ColorDefinition[] colorDefinitions;
+    
+    protected class ContextImpl implements IVisualiserContext {
+        private final HashMap<String, ArtifactData> _data= new HashMap<String, ArtifactData>();
+        
+        public Color getCustomColor(Artifact artifact) {
+            ArtifactData data= getData(artifact);
+            return data != null ? data.color : (Color) null;
+        }
+
+        public String getURL(Artifact artifact) {
+            ArtifactData data= getData(artifact);
+            return data != null ? data.url : (String) null;
+        }
+        
+        private ArtifactData getData(Artifact artifact) {
+            String key= artifact.getGroupId()+":"+artifact.getArtifactId()+":"+artifact.getVersion();
+            
+            if(!_data.containsKey(key)) {
+                _data.put(key, createArtifactData(artifact));
+            }
+            
+            return _data.get(key);
+        }
+    }
 
     public void execute() throws MojoExecutionException {
+getLog().info("COLOR DEFS: " + colorDefinitions);
         try {
             DependencyVisualizer visualizer = new DependencyVisualizer();
             visualizer.cascade = cascade;
@@ -257,15 +326,66 @@ public class ProjectMojo extends AbstractMojo {
     }
     
     protected IVisualiserContext createVisualiserContext() {
-        return new IVisualiserContext() {
-            public String getURL(Artifact artifact) {
-                return null;
-            }
-        };
+        return new ContextImpl();
     }
 
     public File getTarget() {
         return target;
     }
-
+    
+    protected ArtifactData createArtifactData(Artifact artifact) {
+        ArtifactData data;
+        try {
+            Model model= getModelForArtifact(artifact);
+            data= new ArtifactData();
+            data.url= model.getUrl();
+            
+            Properties props= model.getProperties();
+            
+            if(colorDefinitions != null) {
+                for(int i= colorDefinitions.length; i >= 0; --i) {
+                    ColorDefinition cd= colorDefinitions[i];
+                    
+                    if(!cd.isFullySpecified()) {
+                        continue;
+                    }
+                    
+                    String val= props.getProperty(cd.key);
+                    
+                    if(val != null && val.equals(cd.value)) {
+                        data.color= Color.decode(cd.color);
+                        break;
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            data= null;
+        }
+        
+        return data;
+    }
+    
+    private Model getModelForArtifact(Artifact artifact) throws ModelInterpolationException, ProjectBuildingException  {
+        MavenProject mavenProject= mavenProjectBuilder.buildFromRepository(artifact, remoteRepositories, localRepository);
+        return checkModel(mavenProject.getModel());
+    }
+    
+    private Model checkModel(Model model) throws ModelInterpolationException, ProjectBuildingException {
+        if(model.getParent() != null) {
+            Parent parent= model.getParent();
+            Artifact parentArt= artifactFactory.createArtifact(parent.getGroupId(), parent.getArtifactId(), parent.getVersion(), "compile", "pom");
+            MavenProject parentProj= mavenProjectBuilder.buildFromRepository(parentArt, remoteRepositories, localRepository);
+            Model parentModel= parentProj.getModel();
+            
+            if(parentModel.getParent() != null)
+                parentModel= checkModel(parentModel);
+            
+            modelInheritanceAssembler.assembleModelInheritance(model, parentModel);
+        }
+        
+        DefaultProjectBuilderConfiguration projectBuilderConfig= new DefaultProjectBuilderConfiguration();
+        projectBuilderConfig.setExecutionProperties(model.getProperties());
+        return modelInterpolator.interpolate(model, null, projectBuilderConfig, true);
+    }
 }
