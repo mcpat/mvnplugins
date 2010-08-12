@@ -280,7 +280,6 @@ public class ProjectMojo extends AbstractMojo {
     }
 
     public void execute() throws MojoExecutionException {
-getLog().info("COLOR DEFS: " + colorDefinitions);
         try {
             DependencyVisualizer visualizer = new DependencyVisualizer();
             visualizer.cascade = cascade;
@@ -343,7 +342,7 @@ getLog().info("COLOR DEFS: " + colorDefinitions);
             Properties props= model.getProperties();
             
             if(colorDefinitions != null) {
-                for(int i= colorDefinitions.length; i >= 0; --i) {
+                for(int i= colorDefinitions.length - 1; i >= 0; --i) {
                     ColorDefinition cd= colorDefinitions[i];
                     
                     if(!cd.isFullySpecified()) {
@@ -360,6 +359,7 @@ getLog().info("COLOR DEFS: " + colorDefinitions);
             }
             
         } catch (Exception e) {
+            getLog().debug("could not create model", e);
             data= null;
         }
         
